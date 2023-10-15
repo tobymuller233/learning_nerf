@@ -8,6 +8,7 @@ import torch.multiprocessing
 import torch
 import torch.distributed as dist
 import os
+import ipdb
 torch.autograd.set_detect_anomaly(True)
 
 if cfg.fix_random:
@@ -17,12 +18,16 @@ if cfg.fix_random:
 
 
 def train(cfg, network):
+    #ipdb.set_trace()
     train_loader = make_data_loader(cfg,
                                     is_train=True,
                                     is_distributed=cfg.distributed,
                                     max_iter=cfg.ep_iter)
+    #ipdb.set_trace()
     val_loader = make_data_loader(cfg, is_train=False)
+    #ipdb.set_trace()
     trainer = make_trainer(cfg, network, train_loader)
+    #ipdb.set_trace()
 
     optimizer = make_optimizer(cfg, network)
     scheduler = make_lr_scheduler(cfg, optimizer)
@@ -94,6 +99,7 @@ def synchronize():
     dist.barrier()
 
 def main():
+    # ipdb.set_trace()
     if cfg.distributed:
         cfg.local_rank = int(os.environ['RANK']) % torch.cuda.device_count()
         torch.cuda.set_device(cfg.local_rank)
@@ -101,11 +107,16 @@ def main():
                                              init_method="env://")
         synchronize()
 
+    # ipdb.set_trace()
+
     network = make_network(cfg)
+    #ipdb.set_trace()
     if args.test:
         test(cfg, network)
     else:
         train(cfg, network)
+        #ipdb.set_trace()
+    # ipdb.set_trace()
     if cfg.local_rank == 0:
         print('Success!')
         print('='*80)

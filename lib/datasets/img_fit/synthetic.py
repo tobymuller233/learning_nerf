@@ -7,11 +7,13 @@ from torchvision import transforms as T
 import imageio
 import json
 import cv2
+import ipdb
 
 
 class Dataset(data.Dataset):
     def __init__(self, **kwargs):
         super(Dataset, self).__init__()
+        # ipdb.set_trace()
         data_root, split, scene = kwargs['data_root'], kwargs['split'], cfg.scene
         view = kwargs['view']
         self.input_ratio = kwargs['input_ratio']
@@ -24,6 +26,7 @@ class Dataset(data.Dataset):
         json_info = json.load(open(os.path.join(self.data_root, 'transforms_{}.json'.format('train'))))
         for frame in json_info['frames']:
             image_paths.append(os.path.join(self.data_root, frame['file_path'][2:] + '.png'))
+        # ipdb.set_trace()
 
         img = imageio.imread(image_paths[view])/255.
         img = img[..., :3] * img[..., -1:] + (1 - img[..., -1:])

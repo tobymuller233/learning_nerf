@@ -6,6 +6,7 @@ from torch.nn import DataParallel
 from torch.nn.parallel import DistributedDataParallel
 from lib.config import cfg
 from lib.utils.data_utils import to_cuda
+import ipdb
 
 
 class Trainer(object):
@@ -48,9 +49,10 @@ class Trainer(object):
         for iteration, batch in enumerate(data_loader):
             data_time = time.time() - end
             iteration = iteration + 1
-
+            # ipdb.set_trace()
             batch = to_cuda(batch, self.device)
             batch['step'] = self.global_step
+            # should be modified
             output, loss, loss_stats, image_stats = self.network(batch)
 
             # training stage: loss; optimizer; scheduler
@@ -102,6 +104,7 @@ class Trainer(object):
             with torch.no_grad():
                 output, loss, loss_stats, _ = self.network(batch)
                 if evaluator is not None:
+                    # ipdb.set_trace()
                     image_stats_ = evaluator.evaluate(output, batch)
                     if image_stats_ is not None:
                         image_stats.update(image_stats_)

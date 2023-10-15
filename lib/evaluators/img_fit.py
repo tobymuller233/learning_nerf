@@ -12,6 +12,7 @@ import imageio
 from lib.utils import img_utils
 import cv2
 import json
+import ipdb
 
 class Evaluator:
 
@@ -19,7 +20,6 @@ class Evaluator:
         self.psnrs = []
         os.system('mkdir -p ' + cfg.result_dir)
         os.system('mkdir -p ' + cfg.result_dir + '/vis')
-
     def evaluate(self, output, batch):
         # assert image number = 1
         H, W = batch['meta']['H'].item(), batch['meta']['W'].item()
@@ -28,7 +28,7 @@ class Evaluator:
         psnr_item = psnr(gt_rgb, pred_rgb, data_range=1.)
         self.psnrs.append(psnr_item)
         save_path = os.path.join(cfg.result_dir, 'vis/res.jpg')
-        imageio.imwrite(save_path, img_utils.horizon_concate(gt_rgb, pred_rgb))
+        imageio.imwrite(save_path, np.uint8(img_utils.horizon_concate(gt_rgb, pred_rgb)))
 
     def summarize(self):
         ret = {}

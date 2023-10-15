@@ -3,6 +3,7 @@ import argparse
 import os
 import numpy as np
 from . import yacs
+import ipdb
 
 
 cfg = CN()
@@ -70,14 +71,14 @@ cfg.task = 'hello'
 # gpus
 cfg.gpus = list(range(4))
 # if load the pretrained network
-cfg.resume = True
+cfg.resume = False
 
 # epoch
 cfg.ep_iter = -1
 cfg.save_ep = 100000
 cfg.save_latest_ep = 1
 cfg.eval_ep = 1
-log_interval: 20
+log_interval = 20
 
 
 cfg.task_arg = CN()
@@ -155,6 +156,7 @@ def parse_cfg(cfg, args):
 
 def make_cfg(args):
     def merge_cfg(cfg_file, cfg):
+        # ipdb.set_trace()
         with open(cfg_file, 'r') as f:
             current_cfg = yacs.load_cfg(f)
         if 'parent_cfg' in current_cfg.keys():
@@ -171,6 +173,7 @@ def make_cfg(args):
     except:
         cfg_.merge_from_list(args.opts)
     parse_cfg(cfg_, args)
+    # ipdb.set_trace()
     return cfg_
 
 

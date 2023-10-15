@@ -9,6 +9,7 @@ import numpy as np
 import time
 from lib.config.config import cfg
 from torch.utils.data import DataLoader, ConcatDataset
+import ipdb
 
 
 torch.multiprocessing.set_sharing_strategy('file_system')
@@ -78,6 +79,7 @@ def worker_init_fn(worker_id):
 
 
 def make_data_loader(cfg, is_train=True, is_distributed=False, max_iter=-1):
+    # ipdb.set_trace()
     if is_train:
         batch_size = cfg.train.batch_size
         # shuffle = True
@@ -88,16 +90,22 @@ def make_data_loader(cfg, is_train=True, is_distributed=False, max_iter=-1):
         shuffle = True if is_distributed else False
         drop_last = False
 
+    # ipdb.set_trace()
     dataset = make_dataset(cfg, is_train)
+    # ipdb.set_trace()
     sampler = make_data_sampler(dataset, shuffle, is_distributed)
+    # ipdb.set_trace()
     batch_sampler = make_batch_data_sampler(cfg, sampler, batch_size,
                                             drop_last, max_iter, is_train)
+    # ipdb.set_trace()
     num_workers = cfg.train.num_workers
+    # ipdb.set_trace()
     collator = make_collator(cfg, is_train)
+    # ipdb.set_trace()
     data_loader = DataLoader(dataset,
                             batch_sampler=batch_sampler,
                             num_workers=num_workers,
-                            collate_fn=collator,
+                            collate_fn=collator,    # collate_fn is used to merge the list of samples to form a mini-batch
                             worker_init_fn=worker_init_fn,
                             pin_memory=True)
 

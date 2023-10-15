@@ -4,6 +4,7 @@ from torch.nn import functional as F
 import numpy as np
 from lib.networks.encoding import get_encoder
 from lib.config import cfg
+import ipdb
 
 class Network(nn.Module):
     def __init__(self,):
@@ -29,7 +30,7 @@ class Network(nn.Module):
 
     def batchify(self, uv, batch):
         all_ret = {}
-        chunk = cfg.task_arg.chunk_size
+        chunk = cfg.task_arg.chunk_size # chunk size represents the number of pixels to be processed at a time
         for i in range(0, uv.shape[0], chunk):
             ret = self.render(uv[i:i + chunk], batch)
             for k in ret:
@@ -40,6 +41,7 @@ class Network(nn.Module):
         return all_ret
 
     def forward(self, batch):
+        # ipdb.set_trace()
         B, N_pixels, C = batch['uv'].shape
         ret = self.batchify(batch['uv'].reshape(-1, C), batch)
         return {k:ret[k].reshape(B, N_pixels, -1) for k in ret}
