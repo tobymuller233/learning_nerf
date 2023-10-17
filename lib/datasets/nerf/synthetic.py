@@ -1,0 +1,81 @@
+import torch.utils.data as data
+import numpy as np
+import os
+from lib.utils import data_utils
+from lib.config import cfg
+from torchvision import transforms as T
+import imageio
+import json
+import cv2
+import ipdb
+import torch
+
+def get_rays(H, W, K, c2w):
+    i, j = torch.meshgrid(torch.arange(W, dype = torch.float32), torch.arange(H, dtype = np.float32), indexing='xy')
+    # the direction relative to the camera coordination
+    # [400, 400, 3] the world coordination of the pixel
+    dirs = torch.stack([(i - K[0][2]) / K[0][0], -(j - K[1][2] / K[1][1], -torch.ones_like(i))], axis=-1)
+    # rotate ray directions from camera frame to the world frame
+    rays_d = torch.sum(dirs[..., torch.newaxis, :] * c2w[:3, :3], axis=-1)
+    # get the origin of all the rays
+    rays_o = torch.broadcast_to(c2w[:3, -1], torch.shape(rays_d))
+    return rays_o, rays_d
+
+
+class Dataset(data.Dataset):
+    def __init__(self, **kwargs):
+        super(Dataset, self).__init__()
+        data_root, split, scene = kwargs['data_root'], kwargs['split'], cfg.scene
+        view = kwargs['view']
+        self.input_ratio = kwargs['input_ratio']
+        self.data_root = os.path.join(data_root, scene)
+        self.split = split
+        self.batch_size = cfg.task_arg.N_rays   # 1024 by default
+
+        metas = {}
+        camera_focals = {}
+        image_paths = []
+        json_info = json.load(open(os.path.join(self.data_root, 'transforms_{}.json'.format(split))))
+        
+        all_images = []
+        all_poses = []
+        # read in all the images and poses
+        for frame in json_info['frame']:
+            file_name = os.path.join(self.data_root, frame['file_path'][2:] + '.png')
+            all_images.append(imageio.imread(file_name))
+            all_poses.append(np.array(frame['transform_matrix']))
+        
+        # the dataset is split into 3 parts, train, val, test
+        images = np.concatenate(all_images, 0)
+        poses = np.concatenate(all_poses, 0)
+
+        H, W = images[0].shape[:2] # get the width and height of the image
+        self.camera_angle = json_info['camera_angle_x']
+        self.camera_focal = .5 * W / np.tan(.5 * self.camera_angle)
+        self.H = H
+        self.W = W
+        self.images = images
+        self.poses = poses
+
+        self.K = np.array([self.camera_focal, 0., W/2., 
+                            0., self.camera_focal, H/2.,
+                            0., 0., 1.]).reshape(3, 3)
+
+    def __getitem__(self, index):
+        target = self.images[index]
+        pose = self.poses[index]
+        rays_o, rays_d = get_rays(self.H, self.W, self.K, torch.Tensor(pose))  # get the rays and the origin points of the image
+        coords = torch.stack(torch.meshgrid(torch.linspace(0, self.H - 1, self.H), torch.linspace(0, self.W - 1, self.W)), -1)
+        # reshape the tensor
+        coords = torch.reshape(coords, [-1, 2]) # [H * W, 2]
+        # choose N_rand rays
+        select_coords = np.random.choice(coords.shape[0], self.batch_size, replace=False)   # no duplication
+        select_coords = coords[select_coords].long() # type transition
+        select_rays_o = rays_o[select_coords[:, 0], select_coords[:, 1]]
+        select_rays_d = rays_d[select_coords[:, 0], select_coords[:, 1]]
+        select_targets = target[select_coords[:, 0], select_coords[:, 1]]
+        ret = {'rays_o': select_rays_o, 'rays_d': select_rays_d, 'target': select_targets}
+        return ret
+    
+    def __len__(self):
+        return self.images.shape[0]
