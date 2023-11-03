@@ -49,14 +49,25 @@ class Dataset(data.Dataset):
         images = np.concatenate(all_images, 0)
         poses = np.concatenate(all_poses, 0)
 
+        if self.split == "train":
+            self.input_ratio = cfg.train_dataset.input_ratio
+        elif self.split == "test":
+            self.input_ratio = cfg.test_dataset.input_ratio
+        else:
+            self.input_ratio = 1.
+
         H, W = images[0].shape[:2] # get the width and height of the image
         self.camera_angle = json_info['camera_angle_x']
-        self.camera_focal = .5 * W / np.tan(.5 * self.camera_angle)
-        self.H = H
-        self.W = W
-        self.images = images
+        self.camera_focal = .5 * W / np.tan(.5 * self.camera_angle) * self.input_ratio
+        self.H = H * self.input_ratio
+        self.W = W * self.input_ratio
+        self.images = np.zeros((images.shape[0], self.H, self.W, 4))
+        for i, img in enumerate(images):
+            self.images[i] = cv2.resize(img, (self.W, self.H), interpolation=cv2.INTER_AREA)
         self.poses = poses
+        self.N_rand = 1024  # 1024 points in each image
 
+        
         self.K = np.array([self.camera_focal, 0., W/2., 
                             0., self.camera_focal, H/2.,
                             0., 0., 1.]).reshape(3, 3)
@@ -69,7 +80,7 @@ class Dataset(data.Dataset):
         # reshape the tensor
         coords = torch.reshape(coords, [-1, 2]) # [H * W, 2]
         # choose N_rand rays
-        select_coords = np.random.choice(coords.shape[0], self.batch_size, replace=False)   # no duplication
+        select_coords = np.random.choice(coords.shape[0], self.N_rand, replace=False)   # no duplication
         select_coords = coords[select_coords].long() # type transition
         select_rays_o = rays_o[select_coords[:, 0], select_coords[:, 1]]
         select_rays_d = rays_d[select_coords[:, 0], select_coords[:, 1]]

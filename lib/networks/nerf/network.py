@@ -68,7 +68,7 @@ class NeRF(nn.Module):
             view_dirs_flat = torch.reshape(view_dirs, [-1, view_dirs.shape[-1]])
             embedded_dirs = self.dir_encoder(view_dirs_flat)
             embedded = torch.cat([embedded, embedded_dirs], -1)
-            
+        return self.net_forward(embedded) 
     pass
 
     def render_rays(self, rays, N_samples, lindisp=False, perturb = 0.): 
@@ -100,6 +100,10 @@ class NeRF(nn.Module):
         
         # o + td
         pts = rays_o[..., None, :] + rays_d[..., None, :] * z_vals[..., : , None]   # [N_rays, N_samples, 3]
+
+        coarse_res = self.coarse_net(pts, viewdirs) # get the result from the coarse net [N_rays, N_samples, 4]
+        
+
 
 
 
