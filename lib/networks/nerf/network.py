@@ -78,6 +78,9 @@ class NeRF(nn.Module):
         rays_d: view directions
         '''
         dists = z_vals[...,1:] - z_vals[...,:-1]    # the distance between adjacent samples
+        dists = torch.cat([dists, torch.Tensor([1e10]).expand(dists[..., 0].shape)], -1)    # (N_rays, N_samples)
+        dists = dists * torch.norm(rays_d[..., None, :], dim=-1)
+        
         rgb = torch.sigmoid(prev_res[...,:3])       # rgb values
         sigma = prev_res[...,-1]    # \sigma in the formula
         getalpha = lambda raw, dists: 1.-torch.exp(F.relu(prev_res) * dists)
@@ -90,7 +93,7 @@ class NeRF(nn.Module):
         
         if white_bkgd:
             rgb_map = rgb_map + (1.-acc_map[..., None])
-        return rgb_map, weights
+        return rgb_map, acc_map, weights
 
     def render_rays(self, rays, N_samples, lindisp=False, perturb = 0.): 
         white_bkgd = cfg.task_arg.white_bkgd    # 是否使用白色背景
@@ -124,6 +127,7 @@ class NeRF(nn.Module):
 
         coarse_res = self.coarse_net(pts, viewdirs) # get the result from the coarse net [N_rays, N_samples, 4]
         
+        rgb_map, acc_map, weights = self.get_output(coarse_res, z_vals, )
 
 
 
