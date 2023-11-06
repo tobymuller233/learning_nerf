@@ -71,6 +71,27 @@ class NeRF(nn.Module):
         return self.net_forward(embedded) 
     pass
 
+    def get_output(self, prev_res, z_vals, rays_d, white_bkgd = False):
+        '''
+        prev_res: the result from the network, [N_rays, N_samples, 4]
+        z_vals: random sample between near to far
+        rays_d: view directions
+        '''
+        dists = z_vals[...,1:] - z_vals[...,:-1]    # the distance between adjacent samples
+        rgb = torch.sigmoid(prev_res[...,:3])       # rgb values
+        sigma = prev_res[...,-1]    # \sigma in the formula
+        getalpha = lambda raw, dists: 1.-torch.exp(F.relu(prev_res) * dists)
+
+        alpha = getalpha(raw=prev_res[:, 3], dists=dists)
+        weights = alpha * torch.cumprod(torch.cat([torch.ones(alpha.shape[0], 1), 1.-alpha + 1e-10], -1), -1)[:, :-1]    # 增加的那行ones是为了让结果不包含alpha_n
+
+        rgb_map = torch.sum(weights * rgb, dim=-2)  # [N_rays, 3]
+        acc_map = torch.sum(weights, dim=-1)        # [1024] 权重和，用于计算白背景下的rgb
+        
+        if white_bkgd:
+            rgb_map = rgb_map + (1.-acc_map[..., None])
+        return rgb_map, weights
+
     def render_rays(self, rays, N_samples, lindisp=False, perturb = 0.): 
         white_bkgd = cfg.task_arg.white_bkgd    # 是否使用白色背景
         N_rays = rays.shape[0]
@@ -114,7 +135,7 @@ class NeRF(nn.Module):
         N_samples = cfg.task_arg.cascade_samples[0] # N_samples = 64
         all_ret = {}
         for i in range(0, rays.shape[0], chunk_size):
-            ret = self.render_rays(rays[i:i+chunk_size], N_samples)
+            ret = self.render_rays(rays[i:i+chunk_size], N_samples, perturb=0.5)
             for k in ret:
                 if k not in all_ret:
                     all_ret[k] = []
