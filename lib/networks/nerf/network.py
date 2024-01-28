@@ -5,14 +5,16 @@ import numpy as np
 from lib.networks.encoding import get_encoder
 from lib.config import cfg
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 class NeRF_network(nn.Module):
-    def __init(self, input_ch = 3, input_ch_views = 3, output_ch = 4, skips = [4], use_viewdirs = True):
+    def __init__(self, input_ch = 3, input_ch_views = 3, output_ch = 4, skips = [4], use_viewdirs = True):
         super(NeRF_network, self).__init__()
         self.net_cfg = cfg.network
         self.xyz_encoder, self.xyz_input_ch = get_encoder(cfg.network.xyz_encoder)
         self.dir_encoder, self.dir_input_ch = get_encoder(cfg.network.dir_encoder)
-        self.Depth = self.net_cfg.D # depth of full-connected layers
-        self.Width = self.net_cfg.W # Width of full-connected layers
+        self.Depth = self.net_cfg.nerf.D # depth of full-connected layers
+        self.Width = self.net_cfg.nerf.W # Width of full-connected layers
         self.output_ch = output_ch # output channels alpha + rgb
         self.skips = skips # skip connections
         self.use_viewdirs = use_viewdirs
@@ -51,7 +53,7 @@ class NeRF_network(nn.Module):
             o = torch.cat([feature, views], dim=-1)
             
             for i, layer in enumerate(self.view_linear):
-                o = self.view_linear[i][o]
+                o = self.view_linear[i](o)
                 o = F.relu(o)   # [N_rays * N_samples, 128]
             
             rgb = self.rgb_linear(o)
@@ -61,28 +63,29 @@ class NeRF_network(nn.Module):
         return output
 pass
 
-class NeRF(nn.Module):
+class Network(nn.Module):
     def __init__(self, output_ch = 4, skips = [4], use_viewdirs = True):
-        super(NeRF, self).__init__()
-        self.net_cfg = cfg.network
+        super(Network, self).__init__()
+        self.net_cfg = cfg
         self.xyz_encoder, self.xyz_input_ch = get_encoder(cfg.network.xyz_encoder)
         self.dir_encoder, self.dir_input_ch = get_encoder(cfg.network.dir_encoder)
-        self.Width = self.net_cfg.W # Width of full-connected layers
-        self.Depth = self.net_cfg.D # depth of full-connected layers
+        self.Width = self.net_cfg.network.nerf.W # Width of full-connected layers
+        self.Depth = self.net_cfg.network.nerf.D # depth of full-connected layers
         self.output_ch = output_ch # output channels alpha + rgb
         self.skips = skips # skip connections
         self.use_viewdirs = use_viewdirs
 
         self.cascade = self.net_cfg.task_arg.cascade_samples
         # fine network
-        if len(self.cascade > 1):
+        if len(self.cascade) > 1:
             self.fine_sample = self.cascade[1]
         else:
             self.fine_sample = None
 
+        # 这里粗网络和细网络的参数结构都一样，只是传入的东西不太一样
         self.coarse_net = NeRF_network(output_ch = output_ch, skips = skips, use_viewdirs = use_viewdirs)
-        self.fine_net = None
-        if(len(self.cascade > 1)):
+        self.fine_net = NeRF_network(output_ch = output_ch, skips = skips, use_viewdirs = use_viewdirs)
+        if(len(self.cascade) > 1):
             self.fine_net = NeRF_network(output_ch = output_ch, skips = skips, use_viewdirs = use_viewdirs)
         pass
 
@@ -109,15 +112,15 @@ class NeRF(nn.Module):
             output = self.output_linear(o)
         return output
     
-    def coarse_net(self, rays, viewdirs):
-        input = torch.reshape(rays, [-1, rays.shape])   # [N_rays * N_samples, 3]
+    def net_res(self, rays, viewdirs, fn):
+        input = torch.reshape(rays, [-1, rays.shape[-1]])   # [N_rays * N_samples, 3]
         embedded = self.xyz_encoder(input)  # 对位置进行编码 [N_rays * N_samples, 63]
         if self.use_viewdirs:
             view_dirs = viewdirs[:, None].expand(rays.shape)
             view_dirs_flat = torch.reshape(view_dirs, [-1, view_dirs.shape[-1]])
             embedded_dirs = self.dir_encoder(view_dirs_flat)
             embedded = torch.cat([embedded, embedded_dirs], -1)
-        return self.coarse_net(embedded) 
+        return fn(embedded) 
     pass
 
     def get_output(self, prev_res, z_vals, rays_d, white_bkgd = False):
@@ -127,12 +130,12 @@ class NeRF(nn.Module):
         rays_d: view directions
         '''
         dists = z_vals[...,1:] - z_vals[...,:-1]    # the distance between adjacent samples
-        dists = torch.cat([dists, torch.Tensor([1e10]).expand(dists[..., 0].shape)], -1)    # (N_rays, N_samples)
+        dists = torch.cat([dists, torch.Tensor([1e10]).expand(dists[..., :1].shape).to(device)], -1)    # (N_rays, N_samples)
         dists = dists * torch.norm(rays_d[..., None, :], dim=-1)
         
         rgb = torch.sigmoid(prev_res[...,:3])       # rgb values
         sigma = prev_res[...,-1]    # \sigma in the formula
-        getalpha = lambda raw, dists: 1.-torch.exp(F.relu(prev_res) * dists)
+        getalpha = lambda raw, dists: 1.-torch.exp(-F.relu(raw) * dists)
 
         alpha = getalpha(raw=prev_res[:, 3], dists=dists)
         weights = alpha * torch.cumprod(torch.cat([torch.ones(alpha.shape[0], 1), 1.-alpha + 1e-10], -1), -1)[:, :-1]    # 增加的那行ones是为了让结果不包含alpha_n
@@ -187,7 +190,7 @@ class NeRF(nn.Module):
         near = bounds[..., 0]
         far = bounds[..., 1]
 
-        t_vals = torch.linspace(0., 1., steps=N_samples)
+        t_vals = torch.linspace(0., 1., steps=N_samples).to(device)
         if lindisp:
             z_vals = 1. / (1. / near * (1. - t_vals) + 1. / far * t_vals)  # 线性采样
         else:   # 差值采样  
@@ -198,33 +201,45 @@ class NeRF(nn.Module):
             lower = torch.cat([z_vals[:, :1], mids], -1)
             upper = torch.cat([mids, z_vals[:, -1: ]], -1)
 
-            t_rand = torch.rand(z_vals.shape)
+            t_rand = torch.rand(z_vals.shape).to(device)
             z_vals = lower + (upper - lower) * t_rand
         
         # o + td
         pts = rays_o[..., None, :] + rays_d[..., None, :] * z_vals[..., : , None]   # [N_rays, N_samples, 3]
 
-        coarse_res = self.coarse_net(pts, viewdirs) # get the result from the coarse net [N_rays, N_samples, 4]
+        coarse_res = self.net_res(pts, viewdirs, self.coarse_net) # get the result from the coarse net [N_rays, N_samples, 4]
         
-        rgb_map, acc_map, weights = self.get_output(coarse_res, z_vals, )
+        rgb_map, acc_map, weights = self.get_output(coarse_res, z_vals, rays_d)
 
-        if self.fine_sample != None:        # hierachical sampling needed
+        if len(self.cascade) > 1:        # hierachical sampling needed
             mids = 0.5 * (z_vals[:, :-1] + z_vals[:, 1:])   # [N_rays, N_samples - 1]
 
             rgb_map0, acc_map0 = rgb_map, acc_map
-            new_samples = self.hier_samp(mids, weights[:, 1:-1], self.fine_sample)   # [N_rays, N_samples]
+            new_samples = self.hier_samp(mids, weights[:, 1:-1], self.cascade[1])   # [N_rays, N_samples]
+            new_samples = new_samples.detach()
             z_vals = torch.sort(torch.cat([z_vals, new_samples], dim=-1), dim=-1)[0]    # sort and take the values, not the indices
             pts = rays_o[..., None, :] + rays_d[..., None, :] * z_vals[..., :, None]    # p = o + td [N_rays, 64+128, 3]
 
             '''
             here we run the fine net
             '''
+            fine_res = self.net_res(pts, viewdirs, self.fine_net)
+            rgb_map, acc_map, weights = self.get_output(fine_res, z_vals, rays_d)
+        
+        ret = {'rgb_map': rgb_map, 'acc_map': acc_map}
+        if len(self.cascade) > 1:
+            ret['rgb0'] = rgb_map0
+            ret['acc_map'] = acc_map0
+            ret['z_std'] = torch.std(new_samples, dim = -1, unbiased = False)
 
+        # for k in ret:
+        #     if (torch.isnan(ret[k]).any() or torch.isinf(ret[k]).any()) and DEBUG:
+        #         print(f"! [Numerical Error] {k} contains nan or inf.")
 
+        return ret
 
-        pass
-    def batchify(self, rays):   # 控制光线数量
-        chunk_size = self.net_cfg.chunk_size
+    def batchify(self, rays):   # 控制光线数量  分批处理
+        chunk_size = self.net_cfg.task_arg.chunk_size
         N_samples = self.cascade[0] # N_samples = 64
         all_ret = {}
         for i in range(0, rays.shape[0], chunk_size):
@@ -234,14 +249,16 @@ class NeRF(nn.Module):
                     all_ret[k] = []
                 all_ret[k].append(ret[k])
         
-        pass
-    def forward(self, batch):
+        ret_val = {k: torch.cat(all_ret[k], 0) for k in all_ret}        # 把结果从列表的形式转成tensor
+        return ret_val
+        # pass
+    def forward(self, batch, near = 2.0, far = 6.0):
         use_viewdirs = self.use_viewdirs
         rays_o, rays_d = batch['rays_o'], batch['rays_d']
 
         if use_viewdirs:
             viewdirs = rays_d / torch.norm(rays_d, dim=-1, keepdim=True)    # 规范化
-            viewdirs = torch.reshape(viewdirs, [-1, 3], float())    # [N_rays, 3]
+            viewdirs = torch.reshape(viewdirs, [-1, 3]).float()    # [N_rays, 3]
 
         rays_o = torch.reshape(rays_o, [-1, 3]).float()
         rays_d = torch.reshape(rays_d, [-1, 3]).float()
@@ -249,8 +266,9 @@ class NeRF(nn.Module):
         near = near * torch.ones(rays_d.shape[0], device=rays_d.device)
         far = far * torch.ones(rays_d.shape[0], device=rays_d.device)
 
-        rays = torch.cat([rays_o, rays_d, near[:, None], far[:, None]])    # [N_rays, 8]
+        rays = torch.cat([rays_o, rays_d, near[:, None], far[:, None]], dim=-1)    # [N_rays, 8]
         if use_viewdirs:
-            rays = torch.cat([rays, viewdirs], 1)    # [N_rays, 11] 如果要加上视角的话
+            rays = torch.cat([rays, viewdirs], -1)    # [N_rays, 11] 如果要加上视角的话
         
-        pass
+        ret_val = self.batchify(rays)
+        return ret_val
