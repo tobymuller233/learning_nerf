@@ -120,7 +120,10 @@ class Network(nn.Module):
             view_dirs_flat = torch.reshape(view_dirs, [-1, view_dirs.shape[-1]])
             embedded_dirs = self.dir_encoder(view_dirs_flat)
             embedded = torch.cat([embedded, embedded_dirs], -1)
-        return fn(embedded) 
+
+        output = fn(embedded)   # [65536. 4]
+        output = torch.reshape(output, list(rays.shape[:-1]) + [output.shape[-1]])    # [N_rays, N_samples, 4]
+        return output 
     pass
 
     def get_output(self, prev_res, z_vals, rays_d, white_bkgd = False):
@@ -137,7 +140,7 @@ class Network(nn.Module):
         sigma = prev_res[...,-1]    # \sigma in the formula
         getalpha = lambda raw, dists: 1.-torch.exp(-F.relu(raw) * dists)
 
-        alpha = getalpha(raw=prev_res[:, 3], dists=dists)
+        alpha = getalpha(raw=prev_res[:, :, 3], dists=dists)
         weights = alpha * torch.cumprod(torch.cat([torch.ones(alpha.shape[0], 1), 1.-alpha + 1e-10], -1), -1)[:, :-1]    # 增加的那行ones是为了让结果不包含alpha_n
 
         rgb_map = torch.sum(weights * rgb, dim=-2)  # [N_rays, 3]
