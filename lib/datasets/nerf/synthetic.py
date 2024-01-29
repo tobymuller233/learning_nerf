@@ -69,6 +69,8 @@ class Dataset(data.Dataset):
         self.images = np.zeros((images.shape[0], self.H, self.W, 4))
         for i, img in enumerate(images):            # do the crop
             self.images[i] = cv2.resize(img, (self.W, self.H), interpolation=cv2.INTER_AREA)
+        
+        self.images = self.images[..., :3] * self.images[..., -1:] + (1 - self.images[..., -1:])
         self.poses = poses
         self.N_rand = 1024  # 1024 points in each image
 

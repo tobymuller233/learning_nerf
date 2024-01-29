@@ -141,30 +141,30 @@ class Network(nn.Module):
         getalpha = lambda raw, dists: 1.-torch.exp(-F.relu(raw) * dists)
 
         alpha = getalpha(raw=prev_res[:, :, 3], dists=dists)
-        weights = alpha * torch.cumprod(torch.cat([torch.ones(alpha.shape[0], 1), 1.-alpha + 1e-10], -1), -1)[:, :-1]    # 增加的那行ones是为了让结果不包含alpha_n
+        weights = alpha * torch.cumprod(torch.cat([torch.ones(alpha.shape[0], 1).to(device), 1.-alpha + 1e-10], -1), -1)[:, :-1]    # 增加的那行ones是为了让结果不包含alpha_n
 
-        rgb_map = torch.sum(weights * rgb, dim=-2)  # [N_rays, 3]
+        rgb_map = torch.sum(weights[..., None] * rgb, dim=-2)  # [N_rays, 3]
         acc_map = torch.sum(weights, dim=-1)        # [1024] 权重和，用于计算白背景下的rgb
         
         if white_bkgd:
             rgb_map = rgb_map + (1.-acc_map[..., None])
         return rgb_map, acc_map, weights
 
-    def hier_samp(mids, weights, N_samples):
+    def hier_samp(self, mids, weights, N_samples):
         weights = weights + 1e-5    # prevent nans
         pdf = weights / torch.sum(weights, dim = -1, keepdim=True)  # keepdim是为了保证求和后的shape是[N_rays, 62]
         # accumulate sum
         cdf = torch.cumsum(pdf, dim = -1)
-        cdf = torch.cat([torch.zeros_like(cdf[..., :1])], dim = -1) # [N_rays, 63] 在最前面补一个0
+        cdf = torch.cat([torch.zeros_like(cdf[..., :1]), cdf], dim = -1) # [N_rays, 63] 在最前面补一个0
 
         # uniform samples
-        u_samples = torch.rand([cdf.shape[0], N_samples]).contiguous()
+        u_samples = torch.rand([cdf.shape[0], N_samples]).contiguous().to(device)
         
         # find the place in cdf
         # 分层采样的意义就在于，由于不同地方的权重不一样，在权重较大的区间，cdf累加和变化就大，u_samples落在对应区间的概率就比较大
         indexes = torch.searchsorted(cdf, u_samples, right=True)    # [N_rays, 128] right 是为了选择左闭右开区间
-        lower = torch.max(indexes - 1, torch.zeros_like(indexes))   # 防止出现0以下的值
-        upper = torch.min(indexes, torch.ones_like(indexes) * (indexes.shape[:-1] - 1)) # 防止超出边缘值, 在这里是<=62
+        lower = torch.max(indexes - 1, torch.zeros_like(indexes)).to(device)   # 防止出现0以下的值
+        upper = torch.min(indexes, torch.ones_like(indexes) * (indexes.shape[-1] - 1)).to(device) # 防止超出边缘值, 在这里是<=62
         index_int = torch.stack([lower, upper], dim = -1)   # [N_rays, N_samples, 2]
 
         match_shape = [index_int.shape[0], index_int.shape[1], cdf.shape[-1]]
