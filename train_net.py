@@ -9,6 +9,7 @@ import torch
 import torch.distributed as dist
 import os
 import ipdb
+import tqdm
 torch.autograd.set_detect_anomaly(True)
 
 if cfg.fix_random:
@@ -19,6 +20,9 @@ if cfg.fix_random:
 
 def train(cfg, network):
     #ipdb.set_trace()
+    print("-----")
+    print(cfg.local_rank)
+    print("---")
     train_loader = make_data_loader(cfg,
                                     is_train=True,
                                     is_distributed=cfg.distributed,
@@ -101,6 +105,10 @@ def synchronize():
 def main():
     # ipdb.set_trace()
     if cfg.distributed:
+        # os.environ['RANK'] = str(cfg.local_rank)
+        # os.environ['WORLD_SIZE'] = str(len(cfg.gpus))
+        # os.environ['MASTER_ADDR'] = "10.76.2.96"
+        # os.environ['MASTER_PORT'] = "29555"
         cfg.local_rank = int(os.environ['RANK']) % torch.cuda.device_count()
         torch.cuda.set_device(cfg.local_rank)
         torch.distributed.init_process_group(backend="nccl",

@@ -1,5 +1,5 @@
 task: nerf
-gpus: [1]
+gpus: [2]
 exp_name: 'nerf'
 scene: 'lego'
 
@@ -41,7 +41,7 @@ test_dataset:
     data_root: 'data/nerf_synthetic'
     split: 'test'
     input_ratio: 0.5
-    cams: [0, -1, 100]
+    cams: [0, -1, 8]
 
 train:
     batch_size: 1

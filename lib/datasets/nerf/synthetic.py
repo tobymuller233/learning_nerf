@@ -40,10 +40,11 @@ class Dataset(data.Dataset):
         image_paths = []
         json_info = json.load(open(os.path.join(self.data_root, 'transforms_{}.json'.format(split))))
         
+        self.cams = kwargs['cams'][2]
         all_images = []
         all_poses = []
         # read in all the images and poses
-        for frame in json_info['frames']:
+        for frame in json_info['frames'][::self.cams]:
             file_name = os.path.join(self.data_root, frame['file_path'][2:] + '.png')
             all_images.append(imageio.imread(file_name))
             all_poses.append(np.array(frame['transform_matrix']))

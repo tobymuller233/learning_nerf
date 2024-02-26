@@ -177,7 +177,7 @@ class Network(nn.Module):
         t = (u_samples - cdf_gather[..., 0]) / denom    # 线性差值，用于之后的o+td 这里是得到频率
 
         # [N_rays, N_samples]
-        samples = mids_gather[..., 0] + t * (mids_gather[..., 1] - mids_gather[..., 0])
+        samples = mids_gather[..., 0].clone() + t * (mids_gather[..., 1].clone() - mids_gather[..., 0].clone())
         return samples
 
     def render_rays(self, rays, N_samples, lindisp=False, perturb = 0.): 

@@ -1,6 +1,6 @@
 from collections import deque, defaultdict
 import torch
-from tensorboardX import SummaryWriter
+from torch.utils.tensorboard import SummaryWriter
 import os
 from lib.config.config import cfg
 
